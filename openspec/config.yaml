@@ -1,0 +1,55 @@
+schema: spec-driven
+
+context: |
+  arete-ktx is the Kotlin DSL artifact of the arete family (github.com/mictaege): an idiomatic
+  Kotlin DSL for writing arete specs (`class MySpec : Spec({ spec("...") { ... } })`) on a
+  custom JUnit Platform TestEngine (`arete-ktx`), producing the same arete-gradle report as the
+  Java annotation API of the `arete` core library.
+
+  Family: member of the arete family store (`openspec store arete`, ~/openspec/arete), developed
+  on `develop` and released with the family from `release/YYYY.N` branches; shares the family
+  version (e.g. 2026.8). Depends on `arete` (compile) and is consumed by `arete-gradle` (report
+  metadata via KtxTestSource/KtxNodeRegistry) and `arete-gradle-test` (kotlin-specs reference
+  specs, includeBuild).
+
+  Stack: Kotlin, Gradle Kotlin DSL (build.gradle.kts); build/test only via ./gradlew; JUnit
+  Jupiter is the test framework. Published via org.jreleaser to Maven Central as
+  io.github.mictaege:arete-ktx. License: Apache License 2.0. Credentials from Gradle
+  properties/env, never hardcoded.
+
+  Conventions for changes:
+  - Run ./gradlew build and the arete-gradle-test kotlin-specs end-to-end before a change is
+    complete.
+  - Keep report parity with the Java API (see openspec/specs/kotlin-dsl/spec.md).
+  - Capability specs live in openspec/specs/<capability>/spec.md. User-facing docs: Readme.md.
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
