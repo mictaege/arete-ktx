@@ -1,7 +1,6 @@
 package com.github.mictaege.arete_ktx
 
 import com.github.mictaege.arete.*
-import org.junit.jupiter.api.Order
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.Extension
 import kotlin.reflect.KClass
@@ -362,7 +361,6 @@ open class Spec(definition: Spec.() -> Unit) {
     }
 
     @Test
-    @Order(Int.MAX_VALUE)
     fun `spec run finished`() {}
 
     fun spec(
