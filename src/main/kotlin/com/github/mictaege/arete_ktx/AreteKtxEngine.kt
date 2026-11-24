@@ -1,11 +1,17 @@
 package com.github.mictaege.arete_ktx
 
+import org.junit.jupiter.api.extension.AfterAllCallback
+import org.junit.jupiter.api.extension.AfterEachCallback
+import org.junit.jupiter.api.extension.BeforeAllCallback
+import org.junit.jupiter.api.extension.BeforeEachCallback
+import org.junit.jupiter.api.extension.Extension
+import org.junit.jupiter.api.extension.TestExecutionExceptionHandler
+import org.junit.jupiter.api.extension.TestWatcher
 import org.junit.platform.engine.*
 import org.junit.platform.engine.discovery.ClassSelector
 import org.junit.platform.engine.support.descriptor.AbstractTestDescriptor
 import org.junit.platform.engine.support.descriptor.ClassSource
 import org.junit.platform.engine.support.descriptor.EngineDescriptor
-import org.junit.platform.engine.reporting.FileEntry
 import java.util.Optional
 
 class AreteKtxEngine : TestEngine {
@@ -49,88 +55,95 @@ class AreteKtxEngine : TestEngine {
         }
     }
 
-    private fun execute(descriptor: TestDescriptor, listener: EngineExecutionListener) {
+    private fun execute(descriptor: TestDescriptor, listener: EngineExecutionListener, inheritedExtensions: List<Extension> = emptyList()) {
         listener.dynamicTestRegistered(descriptor)
         val node = (descriptor as? KtxDescriptor)?.node
+        val allExtensions = inheritedExtensions + (node?.extensions ?: emptyList())
         val reason = node?.disabledReason
         if (reason != null) {
             val hidden = node?.annotations?.containsKey(com.github.mictaege.arete.HiddenIfDisabled::class.java) == true
             if (!hidden) {
                 listener.executionSkipped(descriptor, reason)
-                if (node?.body != null) publishScreenshot(descriptor, com.github.mictaege.arete.ScreenshotTaker.TestResult.DISABLED, listener)
+            }
+            // Dispatch TestWatcher.testDisabled for extensions (leaf nodes only, like JUnit)
+            val disabledCtx = node?.let { KtxExtensionContext(descriptor, it) }
+            if (disabledCtx != null && node?.body != null) {
+                allExtensions.filterIsInstance<TestWatcher>().forEach {
+                    runCatching { it.testDisabled(disabledCtx, java.util.Optional.ofNullable(reason)) }
+                }
             }
             return
         }
         listener.executionStarted(descriptor)
+        val ctx = node?.let { KtxExtensionContext(descriptor, it) }
+        val isContainer = node != null && descriptor.children.isNotEmpty()
+        val isLeaf = node?.body != null
         val result = try {
+            if (isContainer && ctx != null) {
+                allExtensions.filterIsInstance<BeforeAllCallback>().forEach { it.beforeAll(ctx) }
+            }
             node?.preBody?.invoke()
-            if (node?.body != null) {
+            if (isLeaf && ctx != null) {
+                allExtensions.filterIsInstance<BeforeEachCallback>().forEach { it.beforeEach(ctx) }
                 KtxStepContext.setCurrent(descriptor)
                 try {
-                    node.body.invoke()
+                    node?.body?.invoke()
                 } finally {
                     KtxStepContext.clearCurrent()
                 }
+                allExtensions.filterIsInstance<AfterEachCallback>().reversed().forEach { it.afterEach(ctx) }
             }
             // Bind the narrative context to the innermost container currently executing, so
             // attachToNarrative targets that container's narrative (like Java's nested-class
             // NarrativeContextExtension).
-            val isContainer = node != null && descriptor.children.isNotEmpty()
             val previousNarrative = if (isContainer) KtxNarrativeContext.replaceCurrent(node) else null
             try {
-                descriptor.children.forEach { execute(it, listener) }
+                descriptor.children.forEach { execute(it, listener, allExtensions) }
             } finally {
                 if (isContainer) KtxNarrativeContext.setCurrent(previousNarrative)
             }
+            if (isContainer && ctx != null) {
+                allExtensions.filterIsInstance<AfterAllCallback>().reversed().forEach { it.afterAll(ctx) }
+            }
             TestExecutionResult.successful()
         } catch (t: Throwable) {
-            t.stackTrace = t.stackTrace.filter { !it.className.startsWith("com.github.mictaege.arete_ktx.") }.toTypedArray()
-            TestExecutionResult.failed(t)
+            var handled: Throwable? = t
+            if (isLeaf && ctx != null) {
+                for (handler in allExtensions.filterIsInstance<TestExecutionExceptionHandler>()) {
+                    try {
+                        handler.handleTestExecutionException(ctx, handled!!)
+                        handled = null
+                        break
+                    } catch (rethrown: Throwable) {
+                        handled = rethrown
+                    }
+                }
+            }
+            if (handled != null) {
+                handled.stackTrace = handled.stackTrace.filter { !it.className.startsWith("com.github.mictaege.arete_ktx.") }.toTypedArray()
+                TestExecutionResult.failed(handled)
+            } else {
+                TestExecutionResult.aborted(org.opentest4j.TestAbortedException("Step aborted by extension"))
+            }
         }
         // Publish this node's narrative attachments while the node itself is the current
         // execution, so the launcher keys them under the node's uniqueId (its report page).
         node?.narrativeAttachments?.forEach { (name, mediaType, bytes) ->
             KtxNarrativeContext.publish(descriptor, name, mediaType, bytes)
         }
-        listener.executionFinished(descriptor, result)
-        if (node?.body != null) publishScreenshot(descriptor, result.toScreenshotResult(), listener)
-    }
-
-    private fun TestExecutionResult.toScreenshotResult() =
-        when (status) {
-            TestExecutionResult.Status.SUCCESSFUL -> com.github.mictaege.arete.ScreenshotTaker.TestResult.SUCCESS
-            TestExecutionResult.Status.ABORTED -> com.github.mictaege.arete.ScreenshotTaker.TestResult.ABORTION
-            else -> com.github.mictaege.arete.ScreenshotTaker.TestResult.FAILURE
-        }
-
-    private fun publishScreenshot(
-        descriptor: TestDescriptor,
-        result: com.github.mictaege.arete.ScreenshotTaker.TestResult,
-        listener: EngineExecutionListener,
-    ) {
-        var d: TestDescriptor? = descriptor
-        while (d != null) {
-            val cfg = (d as? KtxDescriptor)?.node?.screenshot
-            if (cfg != null) {
-                if (result in cfg.takeWhen) {
-                    val bytes = runCatching { cfg.bytes() }.getOrDefault(ByteArray(0))
-                    if (bytes.isNotEmpty()) {
-                        val name = "${com.github.mictaege.arete.ScreenshotTaker.SCREENSHOT_NAME_PREFIX}.${cfg.extension}"
-                        val mediaType = when (cfg.extension.lowercase()) {
-                            "png" -> "image/png"
-                            "jpg", "jpeg" -> "image/jpeg"
-                            else -> "application/octet-stream"
-                        }
-                        val dir = java.nio.file.Files.createTempDirectory("arete-ktx-screenshot-")
-                        val tmp = dir.resolve(name)
-                        java.nio.file.Files.write(tmp, bytes)
-                        listener.fileEntryPublished(descriptor, FileEntry.from(tmp, mediaType))
-                    }
-                }
-                return
+        // Dispatch TestWatcher callbacks with the final result (leaf nodes only, like JUnit)
+        if (ctx != null && isLeaf) {
+            val watchers = allExtensions.filterIsInstance<TestWatcher>()
+            when (result.status) {
+                TestExecutionResult.Status.SUCCESSFUL ->
+                    watchers.forEach { runCatching { it.testSuccessful(ctx) } }
+                TestExecutionResult.Status.FAILED ->
+                    watchers.forEach { runCatching { it.testFailed(ctx, result.throwable.orElse(null)) } }
+                TestExecutionResult.Status.ABORTED ->
+                    watchers.forEach { runCatching { it.testAborted(ctx, result.throwable.orElse(null)) } }
             }
-            d = d.parent.orElse(null)
         }
+        listener.executionFinished(descriptor, result)
     }
 
     private fun KtxNode.toDescriptor(uniqueId: UniqueId, specClass: Class<*>? = null): TestDescriptor {

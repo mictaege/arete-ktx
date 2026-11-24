@@ -3,6 +3,7 @@ package com.github.mictaege.arete_ktx
 import com.github.mictaege.arete.*
 import org.junit.jupiter.api.Order
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.Extension
 import kotlin.reflect.KClass
 
 /** A node in the Kotlin DSL spec tree. */
@@ -14,15 +15,10 @@ class KtxNode(
     val body: (() -> Unit)? = null,
     var preBody: (() -> Unit)? = null,
     var disabledReason: String? = null,
-    var screenshot: ScreenshotConfig? = null,
     val narrativeAttachments: MutableList<Triple<String, String, ByteArray>> = mutableListOf(),
+    val extensions: MutableList<Extension> = mutableListOf(),
 ) {
 
-    class ScreenshotConfig(
-        val takeWhen: Set<com.github.mictaege.arete.ScreenshotTaker.TestResult>,
-        val bytes: () -> ByteArray,
-        val extension: String = "png",
-    )
     fun annotate(annotation: Class<out Annotation>, attrs: Map<String, Any?>) {
         annotations[annotation] = attrs
     }
@@ -59,25 +55,25 @@ abstract class KtxScope {
         t.annotate(org.junit.jupiter.api.Disabled::class.java, mapOf("value" to reason))
         if (hidden) t.annotate(com.github.mictaege.arete.HiddenIfDisabled::class.java, emptyMap())
     }
+
+    /** Register JUnit Jupiter [Extension] classes declaratively on the enclosing container
+     *  (like Java's `@ExtendWith`). Each class is instantiated via its no-arg constructor.
+     *  Extensions apply to this container's whole subtree; child registrations add to
+     *  (not replace) parent ones. */
+    fun extendWith(vararg ext: KClass<out Extension>) {
+        target?.extensions?.addAll(ext.map { it.java.getDeclaredConstructor().newInstance() })
+    }
+
+    /** Register a JUnit Jupiter [Extension] programmatically on the enclosing container
+     *  (like Java's `@RegisterExtension`, allowing configured instances). */
+    fun registerExtension(ext: Extension) {
+        target?.extensions?.add(ext)
+    }
 }
 
 /** Scope of a container node (spec, feature, scenario, describe, journey): documentable. */
 @AreteKtxDsl
 abstract class DocumentedScope : KtxScope() {
-    /** Take a screenshot of every step whose result is in [takeWhen] (default: failures). */
-    fun screenshots(
-        takeWhen: Set<com.github.mictaege.arete.ScreenshotTaker.TestResult> =
-            setOf(com.github.mictaege.arete.ScreenshotTaker.TestResult.FAILURE),
-        bytes: () -> ByteArray,
-    ) {
-        target?.screenshot = KtxNode.ScreenshotConfig(takeWhen, bytes)
-    }
-
-    /** Take screenshots using an arete [com.github.mictaege.arete.ScreenshotTaker], like the Java ScreenshotExtension. */
-    fun screenshots(taker: com.github.mictaege.arete.ScreenshotTaker) {
-        target?.screenshot = KtxNode.ScreenshotConfig(taker.takeWhen(), { taker.imageBytes }, taker.fileExtension)
-    }
-
     /**
      * Attach a file to the narrative of the enclosing node (like Java's NarrativeContext.attach).
      * Called at DSL definition time, so the attachment is queued on the node and published when the

@@ -1,5 +1,7 @@
 package com.github.mictaege.arete_ktx
 
+import com.github.mictaege.arete.ScreenshotExtension
+import com.github.mictaege.arete.ScreenshotTaker
 import org.junit.jupiter.api.MediaType
 import org.junit.jupiter.api.Test
 import org.junit.platform.engine.reporting.FileEntry
@@ -10,12 +12,14 @@ import org.junit.platform.engine.discovery.DiscoverySelectors.selectClass
 
 class ScreenshotDslTest {
 
+    class DummyTaker : ScreenshotTaker {
+        override fun takeWhen(): Set<ScreenshotTaker.TestResult> = setOf(ScreenshotTaker.TestResult.SUCCESS)
+        override fun getImageBytes(): ByteArray = byteArrayOf(1, 2, 3)
+    }
+
     class Shot : Spec({
         spec("Shot Spec") {
-            screenshots(
-                takeWhen = setOf(com.github.mictaege.arete.ScreenshotTaker.TestResult.SUCCESS),
-                bytes = { byteArrayOf(1, 2, 3) }
-            )
+            registerExtension(ScreenshotExtension(DummyTaker()))
             scenario("passing scenario") {
                 given { }
                 `when` {

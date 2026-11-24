@@ -174,3 +174,44 @@ scenario("Show Advertisement") {
 }
 ```
 
+## JUnit Jupiter Extensions
+
+Inside any container scope (`spec`, `feature`, `scenario`, `describe`, `journey`) you can
+register JUnit Jupiter `Extension`s — equivalent to Java's `@ExtendWith` / `@RegisterExtension`.
+The arete-ktx engine invokes their lifecycle callbacks (`BeforeAllCallback`, `AfterAllCallback`,
+`BeforeEachCallback`, `AfterEachCallback`, `TestExecutionExceptionHandler`) around the
+corresponding spec tree nodes:
+
+```kotlin
+class LoggingExtension : BeforeAllCallback, AfterAllCallback {
+    override fun beforeAll(context: ExtensionContext) { println("Container started: ${context.displayName}") }
+    override fun afterAll(context: ExtensionContext) { println("Container finished: ${context.displayName}") }
+}
+
+class MySpec : Spec({
+    spec("My Spec") {
+        extendWith(LoggingExtension::class)              // declarative, like @ExtendWith
+        // or: registerExtension(LoggingExtension())     // programmatic, like @RegisterExtension
+        scenario("Something") {
+            given("a step") { }
+            `when`("another step") { }
+            then("it works") { }
+        }
+    }
+})
+```
+
+Extensions registered on a container apply to its whole subtree; child registrations add to
+(not replace) parent ones. Specs without extensions behave exactly as before.
+
+### Screenshots via ScreenshotExtension
+
+Take screenshots by registering arete's `ScreenshotExtension` (a `TestWatcher`):
+
+```kotlin
+spec("Booking Process") {
+    registerExtension(ScreenshotExtension(UiDummyScreenshotTaker()))
+    // ...
+}
+```
+
