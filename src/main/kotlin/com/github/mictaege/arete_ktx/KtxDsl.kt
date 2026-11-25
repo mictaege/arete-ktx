@@ -12,7 +12,10 @@ class KtxNode(
     val annotations: MutableMap<Class<out Annotation>, Map<String, Any?>> = mutableMapOf(),
     val children: MutableList<KtxNode> = mutableListOf(),
     val body: (() -> Unit)? = null,
-    var preBody: (() -> Unit)? = null,
+    var beforeAllHook: (StepBodyScope.() -> Unit)? = null,
+    var beforeEachHook: (StepBodyScope.() -> Unit)? = null,
+    var afterEachHook: (StepBodyScope.() -> Unit)? = null,
+    var afterAllHook: (StepBodyScope.() -> Unit)? = null,
     var disabledReason: String? = null,
     val narrativeAttachments: MutableList<Triple<String, String, ByteArray>> = mutableListOf(),
     val extensions: MutableList<Extension> = mutableListOf(),
@@ -67,6 +70,30 @@ abstract class KtxScope {
      *  (like Java's `@RegisterExtension`, allowing configured instances). */
     fun registerExtension(ext: Extension) {
         target?.extensions?.add(ext)
+    }
+
+    /** Run [block] once before this container's children (like JUnit `@BeforeAll`).
+     *  Single slot: a second call replaces the first. */
+    fun beforeAll(block: StepBodyScope.() -> Unit) {
+        target?.beforeAllHook = block
+    }
+
+    /** Run [block] around every executable leaf in this container's subtree
+     *  (like JUnit `@BeforeEach`). Single slot: a second call replaces the first. */
+    fun beforeEach(block: StepBodyScope.() -> Unit) {
+        target?.beforeEachHook = block
+    }
+
+    /** Run [block] after every executable leaf in this container's subtree, even when the leaf
+     *  fails (like JUnit `@AfterEach`). Single slot: a second call replaces the first. */
+    fun afterEach(block: StepBodyScope.() -> Unit) {
+        target?.afterEachHook = block
+    }
+
+    /** Run [block] once after this container's children, even when a child failed
+     *  (like JUnit `@AfterAll`). Single slot: a second call replaces the first. */
+    fun afterAll(block: StepBodyScope.() -> Unit) {
+        target?.afterAllHook = block
     }
 }
 
@@ -219,7 +246,8 @@ class SpecScope : DocumentedScope() {
             val variants = scope.nodes.mapNotNull { it.annotations[Step::class.java]?.get("variant") as? String }.distinct()
             variants.forEach { variant ->
                 val vNode = KtxNode("journey", "Variant: $variant", mutableMapOf(Journey::class.java to mapOf("desc" to "Variant: $variant")))
-                vNode.preBody = scope.beforeVariant
+                vNode.beforeAllHook = scope.beforeVariant
+                vNode.afterAllHook = scope.afterVariant
                 (common + scope.nodes.filter { it.annotations[Step::class.java]?.get("variant") == variant })
                     .sortedBy { it.annotations[Step::class.java]?.get("order") as? Int ?: 0 }
                     .forEach { vNode.children.add(it) }
@@ -235,9 +263,13 @@ class SpecScope : DocumentedScope() {
 }
 
 class VariableJourneyScope : DocumentedScope() {
-    var beforeVariant: (() -> Unit)? = null
+    var beforeVariant: (StepBodyScope.() -> Unit)? = null
+    var afterVariant: (StepBodyScope.() -> Unit)? = null
     private var orderCounter = 0
-    fun beforeVariant(block: () -> Unit) { beforeVariant = block }
+    /** Run [block] before all steps of each variant (like Java's `@BeforeVariant`). */
+    fun beforeVariant(block: StepBodyScope.() -> Unit) { beforeVariant = block }
+    /** Run [block] after all steps of each variant (like Java's `@AfterVariant`). */
+    fun afterVariant(block: StepBodyScope.() -> Unit) { afterVariant = block }
     fun step(name: String = "", phase: String? = null, variant: String? = null, block: StepBodyScope.() -> Unit) {
         val order = ++orderCounter
         val attrs = mutableMapOf<String, Any?>("order" to order, "value" to order)

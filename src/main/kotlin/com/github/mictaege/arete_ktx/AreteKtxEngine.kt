@@ -55,10 +55,19 @@ class AreteKtxEngine : TestEngine {
         }
     }
 
-    private fun execute(descriptor: TestDescriptor, listener: EngineExecutionListener, inheritedExtensions: List<Extension> = emptyList()) {
+    private fun execute(
+        descriptor: TestDescriptor,
+        listener: EngineExecutionListener,
+        inheritedExtensions: List<Extension> = emptyList(),
+        inheritedBeforeEach: List<StepBodyScope.() -> Unit> = emptyList(),
+        inheritedAfterEach: List<StepBodyScope.() -> Unit> = emptyList(),
+    ) {
         listener.dynamicTestRegistered(descriptor)
         val node = (descriptor as? KtxDescriptor)?.node
         val allExtensions = inheritedExtensions + (node?.extensions ?: emptyList())
+        // JUnit ordering: beforeEach parent-first, afterEach child-first (reverse).
+        val beforeEachHooks = inheritedBeforeEach + listOfNotNull(node?.beforeEachHook)
+        val afterEachHooks = listOfNotNull(node?.afterEachHook) + inheritedAfterEach
         val reason = node?.disabledReason
         if (reason != null) {
             val hidden = node?.annotations?.containsKey(com.github.mictaege.arete.HiddenIfDisabled::class.java) == true
@@ -79,28 +88,42 @@ class AreteKtxEngine : TestEngine {
         val isContainer = node != null && descriptor.children.isNotEmpty()
         val isLeaf = node?.body != null
         val result = try {
-            if (isContainer && ctx != null) {
-                allExtensions.filterIsInstance<BeforeAllCallback>().forEach { it.beforeAll(ctx) }
-            }
-            node?.preBody?.invoke()
-            if (isLeaf && ctx != null) {
-                allExtensions.filterIsInstance<BeforeEachCallback>().forEach { it.beforeEach(ctx) }
-                KtxStepContext.setCurrent(descriptor)
-                try {
-                    node?.body?.invoke()
-                } finally {
-                    KtxStepContext.clearCurrent()
-                }
-                allExtensions.filterIsInstance<AfterEachCallback>().reversed().forEach { it.afterEach(ctx) }
-            }
             // Bind the narrative context to the innermost container currently executing, so
             // attachToNarrative targets that container's narrative (like Java's nested-class
             // NarrativeContextExtension).
             val previousNarrative = if (isContainer) KtxNarrativeContext.replaceCurrent(node) else null
+            if (isContainer && ctx != null) {
+                allExtensions.filterIsInstance<BeforeAllCallback>().forEach { it.beforeAll(ctx) }
+            }
+            if (isContainer) {
+                node?.beforeAllHook?.let { StepBodyScope().apply(it) }
+            }
+            if (isLeaf) {
+                KtxStepContext.setCurrent(descriptor)
+                try {
+                    if (ctx != null) {
+                        allExtensions.filterIsInstance<BeforeEachCallback>().forEach { it.beforeEach(ctx) }
+                    }
+                    beforeEachHooks.forEach { StepBodyScope().apply(it) }
+                    try {
+                        node?.body?.invoke()
+                    } finally {
+                        afterEachHooks.forEach { StepBodyScope().apply(it) }
+                        if (ctx != null) {
+                            allExtensions.filterIsInstance<AfterEachCallback>().reversed().forEach { it.afterEach(ctx) }
+                        }
+                    }
+                } finally {
+                    KtxStepContext.clearCurrent()
+                }
+            }
             try {
-                descriptor.children.forEach { execute(it, listener, allExtensions) }
+                descriptor.children.forEach { execute(it, listener, allExtensions, beforeEachHooks, afterEachHooks) }
             } finally {
-                if (isContainer) KtxNarrativeContext.setCurrent(previousNarrative)
+                if (isContainer) {
+                    node?.afterAllHook?.let { StepBodyScope().apply(it) }
+                    KtxNarrativeContext.setCurrent(previousNarrative)
+                }
             }
             if (isContainer && ctx != null) {
                 allExtensions.filterIsInstance<AfterAllCallback>().reversed().forEach { it.afterAll(ctx) }
