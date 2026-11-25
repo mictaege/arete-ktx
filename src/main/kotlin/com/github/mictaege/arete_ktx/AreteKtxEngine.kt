@@ -146,7 +146,8 @@ class AreteKtxEngine : TestEngine {
         listener.executionFinished(descriptor, result)
     }
 
-    private fun KtxNode.toDescriptor(uniqueId: UniqueId, specClass: Class<*>? = null): TestDescriptor {
+    private fun KtxNode.toDescriptor(uniqueId: UniqueId, specClass: Class<*>? = null,
+                                     inheritedTags: Set<org.junit.platform.engine.TestTag> = emptySet()): TestDescriptor {
         val segmentType = when (type) {
             "given" -> "given"; "when" -> "when"; "then" -> "then"
             else -> type
@@ -159,9 +160,12 @@ class AreteKtxEngine : TestEngine {
         } else {
             KtxTestSource(type, annotations, specClass)
         }
-        val descriptor = KtxDescriptor(childUniqueId, name, this, source)
+        val ownTags = annotations.keys
+            .filter { it.isAnnotationPresent(org.junit.jupiter.api.Tag::class.java) }
+            .map { org.junit.platform.engine.TestTag.create(it.getAnnotation(org.junit.jupiter.api.Tag::class.java).value) }
+        val descriptor = KtxDescriptor(childUniqueId, name, this, source, inheritedTags + ownTags)
         KtxNodeRegistry.register(childUniqueId.toString(), this)
-        children.forEach { descriptor.addChild(it.toDescriptor(descriptor.uniqueId, specClass)) }
+        children.forEach { descriptor.addChild(it.toDescriptor(descriptor.uniqueId, specClass, inheritedTags + ownTags)) }
         return descriptor
     }
 }
@@ -171,9 +175,12 @@ class KtxDescriptor(
     displayName: String,
     val node: KtxNode,
     private val source: TestSource,
+    private val tags: Set<org.junit.platform.engine.TestTag> = emptySet(),
 ) : AbstractTestDescriptor(uniqueId, displayName) {
 
     override fun getSource(): Optional<TestSource> = Optional.of(source)
+
+    override fun getTags(): Set<org.junit.platform.engine.TestTag> = tags
 
     override fun getType(): TestDescriptor.Type =
         if (node.body != null) TestDescriptor.Type.TEST else TestDescriptor.Type.CONTAINER
