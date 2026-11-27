@@ -32,10 +32,10 @@ internal fun String.prefixed(prefix: String): String =
 /** An external reference of a node: either a composed annotation (e.g. `@GithubRef("14")`) or a plain `@Ref`. */
 sealed interface KtxRef
 data class AnnotationRef(val annotation: KClass<out Annotation>, val value: String) : KtxRef
-data class PlainRef(val value: String, val url: String = "") : KtxRef
+data class PlainRef(val value: String, val url: String = "", val project: String = "") : KtxRef
 
 fun ref(annotation: KClass<out Annotation>, value: String) = AnnotationRef(annotation, value)
-fun ref(value: String, url: String = "") = PlainRef(value, url)
+fun ref(value: String, url: String = "", project: String = "") = PlainRef(value, url, project)
 
 internal fun String.capitalizedFirst(): String =
     if (isEmpty()) this else first().uppercaseChar() + substring(1)
@@ -135,9 +135,9 @@ abstract class DocumentedScope : KtxScope() {
         val plain = refs.filterIsInstance<PlainRef>()
         when (plain.size) {
             0 -> {}
-            1 -> t.annotations[Ref::class.java] = mapOf("value" to plain[0].value, "url" to plain[0].url)
+            1 -> t.annotations[Ref::class.java] = mapOf("value" to plain[0].value, "url" to plain[0].url, "project" to plain[0].project)
             else -> t.annotations[Refs::class.java] = mapOf(
-                "value" to plain.map { mapOf("value" to it.value, "url" to it.url) }.toTypedArray()
+                "value" to plain.map { mapOf("value" to it.value, "url" to it.url, "project" to it.project) }.toTypedArray()
             )
         }
         tags.forEach { t.annotations[it.java] = emptyMap() }
