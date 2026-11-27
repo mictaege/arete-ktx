@@ -159,7 +159,7 @@ abstract class ExamplesScope : DocumentedScope() {
             )
             container.children.add(
                 KtxNode("example", display, mutableMapOf(Examples::class.java to emptyMap()),
-                    body = { StepBodyScope().apply { test(row.map { (it as? KtxExampleParam<*>)?.value ?: it }) } })
+                    body = { StepBodyScope().apply { test(row.drop(1).map { (it as? KtxExampleParam<*>)?.value ?: it }) } })
             )
         }
         add(container)
@@ -347,6 +347,7 @@ interface ExampleScopeMixin {
 class ExampleSourceScope : ExampleScopeMixin {
     val rows = mutableListOf<List<Any?>>()
     fun example(label: String, vararg params: KtxExampleParam<*>) { rows.add(listOf(label) + params.toList()) }
+    fun example(vararg params: KtxExampleParam<*>) { example(label = "{0}) ", params = params) }
 }
 
 @AreteKtxDsl
